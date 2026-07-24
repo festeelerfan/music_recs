@@ -7,3 +7,5 @@ librosa>=0.11
 muq>=0.1
 mutagen>=1.48
 pytest>=9.1
+faiss-cpu>=1.14
+joblib>=1.5

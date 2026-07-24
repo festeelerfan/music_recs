@@ -1,4 +1,9 @@
-from src.ingest.acousticbrainz import _flatten, _get, iter_bulk_records
+from src.ingest.acousticbrainz import (
+    _flatten,
+    _get,
+    iter_bulk_records,
+    iter_bulk_records_with_highlevel,
+)
 
 
 def test_get_nested_path():
@@ -59,3 +64,48 @@ def test_iter_bulk_records_respects_limit(monkeypatch):
 
     rows = list(iter_bulk_records(["urlA"], limit=3))
     assert len(rows) == 3
+
+
+def _ll_doc(mbid):
+    return {"metadata": {"tags": {"musicbrainz_recordingid": [mbid]}}}
+
+
+def _hl_doc(mbid, happy_value=None):
+    doc = {"metadata": {"tags": {"musicbrainz_recordingid": [mbid]}}}
+    if happy_value is not None:
+        doc["highlevel"] = {"mood_happy": {"value": happy_value, "probability": 0.9}}
+    return doc
+
+
+def test_iter_bulk_records_with_highlevel_merges_aligned_archives(monkeypatch):
+    ll_docs = [_ll_doc("1"), _ll_doc("2")]
+    hl_docs = [_hl_doc("1", "happy"), _hl_doc("2", "not_happy")]
+
+    def fake_iter_archive_docs(url):
+        return iter(ll_docs if url == "llA" else hl_docs)
+
+    monkeypatch.setattr(
+        "src.ingest.acousticbrainz._iter_archive_docs", fake_iter_archive_docs
+    )
+
+    rows = list(iter_bulk_records_with_highlevel(["llA"], ["hlA"], limit=10))
+    assert [r["highlevel.mood_happy.value"] for r in rows] == ["happy", "not_happy"]
+
+
+def test_iter_bulk_records_with_highlevel_keeps_columns_on_mismatch(monkeypatch):
+    # low-level and high-level archives out of alignment for one record.
+    ll_docs = [_ll_doc("1"), _ll_doc("2")]
+    hl_docs = [_hl_doc("mismatched-mbid", "happy"), _hl_doc("2", "not_happy")]
+
+    def fake_iter_archive_docs(url):
+        return iter(ll_docs if url == "llA" else hl_docs)
+
+    monkeypatch.setattr(
+        "src.ingest.acousticbrainz._iter_archive_docs", fake_iter_archive_docs
+    )
+
+    rows = list(iter_bulk_records_with_highlevel(["llA"], ["hlA"], limit=10))
+    # mismatched row still has the column, just unset - keeps CSV columns consistent
+    assert rows[0]["highlevel.mood_happy.value"] is None
+    assert rows[1]["highlevel.mood_happy.value"] == "not_happy"
+    assert set(rows[0].keys()) == set(rows[1].keys())

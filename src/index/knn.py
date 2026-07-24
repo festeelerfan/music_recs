@@ -9,12 +9,20 @@ import pandas as pd
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 
-NON_FEATURE_COLUMNS = {"mbid", "tonal.key_key", "tonal.key_scale"}
+NON_FEATURE_COLUMNS = {"mbid"}
 
 
 def load_features(csv_path):
+    """Use every numeric column as a feature - this schema has grown to
+    include categorical fields (e.g. tonal.key_key, highlevel.*.value)
+    which aren't part of the distance metric, so select by dtype rather
+    than maintaining a name-based exclude list."""
     df = pd.read_csv(csv_path)
-    feature_columns = [c for c in df.columns if c not in NON_FEATURE_COLUMNS]
+    feature_columns = [
+        c
+        for c in df.columns
+        if c not in NON_FEATURE_COLUMNS and pd.api.types.is_numeric_dtype(df[c])
+    ]
     df = df.dropna(subset=feature_columns).reset_index(drop=True)
     return df, feature_columns
 

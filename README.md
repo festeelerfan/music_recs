@@ -1,20 +1,29 @@
 Music similarity engine — content-based (not collaborative-filtering) music
-recommendation. Project brief lives outside this folder (see the top-level
-CLAUDE.md at the repo root) — this directory is the implementation only.
+recommendation.
+
+## Setup
+
+```
+pip install -r requirements.txt
+brew install ffmpeg  # required for librosa to decode mp3/m4a via audioread
+```
 
 ## Layout
 
 - `src/ingest/` — one loader per data source (AcousticBrainz, FMA, own library)
 - `src/features/` — classical/interpretable feature extraction (AcousticBrainz
   parsing now; chord/key detection later)
-- `src/embed/` — joint audio-text embedding (backbone TBD — CLAP vs. MuLan;
-  whole-track first, segment windowing later)
+- `src/embed/` — joint audio-text embedding via MuQ-MuLan (Tencent, 2025;
+  https://github.com/tencent-ailab/MuQ) — whole-track first, segment
+  windowing later
 - `src/index/` — nearest-neighbor index build/query
 - `src/query/` — one handler per query mode (segment/descriptor, artist+
   favorites, mood, conversational)
+- `src/eval/` — quantitative retrieval eval (recall@k against the Song
+  Describer Dataset) — separate from the similarity index itself
 - `data/raw/` — untouched source dumps (gitignored)
 - `data/processed/` — parsed feature tables, embeddings, index files (gitignored)
-- `notebooks/` — exploration and retrieval eval
+- `notebooks/` — exploration
 
 ## Build order
 

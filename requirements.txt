@@ -1,0 +1,9 @@
+pandas>=3.0
+requests>=2.34
+zstandard>=0.25
+scikit-learn>=1.9
+torch>=2.13
+librosa>=0.11
+muq>=0.1
+mutagen>=1.48
+pytest>=9.1

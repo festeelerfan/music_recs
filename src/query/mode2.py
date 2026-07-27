@@ -66,7 +66,7 @@ def find_anchor(title, artist, library_root, segments_path=DEFAULT_SEGMENTS_PATH
 def _track_segments(embeds, segments_df, path):
     """A track's segment embeddings, in chronological order."""
     rows = segments_df[segments_df["path"] == path].sort_values("segment_start_sec")
-    return embeds[rows.index.to_numpy()]
+    return embeds[rows.index.to_numpy().copy()]
 
 
 def query_by_example(embeds, segments_df, anchor_path, k=5):

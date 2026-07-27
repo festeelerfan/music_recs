@@ -44,30 +44,13 @@ def build_segment_index(library_root, n_tracks, seed=0):
     return _embed_tracks(model, tracks)
 
 
-def extend_segment_index(
-    library_root,
-    additional_n,
-    seed=0,
-    embeddings_path=DEFAULT_EMBEDDINGS_PATH,
-    segments_path=DEFAULT_SEGMENTS_PATH,
-    checkpoint_every=20,
+def _checkpointed_embed_and_append(
+    new_tracks, existing_embeds, existing_segments_df, embeddings_path, segments_path, checkpoint_every
 ):
-    """Embed `additional_n` tracks not already in the saved segment index
-    and append them, rather than re-embedding everything from scratch.
-    Matches on file path (not position), same reasoning as
-    build_library_index.extend_index. Saves to disk every
-    `checkpoint_every` tracks (not just once at the end) so a crash or
-    interruption during a long run doesn't lose everything - re-running
-    with the same arguments picks up where it left off, since already-saved
-    paths are excluded from the candidate list."""
-    existing_segments_df = pd.read_csv(segments_path)
-    existing_embeds = torch.load(embeddings_path)
-    existing_paths = set(existing_segments_df["path"])
-
-    candidates = [t for t in iter_library_tracks(library_root) if t["path"] not in existing_paths]
-    random.Random(seed).shuffle(candidates)
-    new_tracks = candidates[:additional_n]
-
+    """Shared by extend_segment_index and extend_segment_index_for_tracks:
+    embeds new_tracks in batches, saving to disk every `checkpoint_every`
+    tracks (not just once at the end) so a crash or interruption during a
+    long run doesn't lose everything."""
     model = load_model()
     combined_embeds = existing_embeds
     combined_segments_df = existing_segments_df
@@ -86,9 +69,57 @@ def extend_segment_index(
     return combined_embeds, combined_segments_df
 
 
+def extend_segment_index(
+    library_root,
+    additional_n,
+    seed=0,
+    embeddings_path=DEFAULT_EMBEDDINGS_PATH,
+    segments_path=DEFAULT_SEGMENTS_PATH,
+    checkpoint_every=20,
+):
+    """Embed `additional_n` tracks not already in the saved segment index,
+    chosen by random sample from the whole library, and append them rather
+    than re-embedding everything from scratch. Matches on file path (not
+    position), same reasoning as build_library_index.extend_index. Re-
+    running with the same arguments resumes from the last checkpoint, since
+    already-saved paths are excluded from the candidate list."""
+    existing_segments_df = pd.read_csv(segments_path)
+    existing_embeds = torch.load(embeddings_path)
+    existing_paths = set(existing_segments_df["path"])
+
+    candidates = [t for t in iter_library_tracks(library_root) if t["path"] not in existing_paths]
+    random.Random(seed).shuffle(candidates)
+    new_tracks = candidates[:additional_n]
+
+    return _checkpointed_embed_and_append(
+        new_tracks, existing_embeds, existing_segments_df, embeddings_path, segments_path, checkpoint_every
+    )
+
+
+def extend_segment_index_for_tracks(
+    tracks,
+    embeddings_path=DEFAULT_EMBEDDINGS_PATH,
+    segments_path=DEFAULT_SEGMENTS_PATH,
+    checkpoint_every=20,
+):
+    """Like extend_segment_index, but embeds a specific, already-chosen set
+    of tracks rather than a random library sample - e.g. targeting tracks
+    that are in the whole-track pool but missing from the segment pool, to
+    reach genuine parity rather than a coincidentally-sized random sample."""
+    existing_segments_df = pd.read_csv(segments_path)
+    existing_embeds = torch.load(embeddings_path)
+    existing_paths = set(existing_segments_df["path"])
+
+    new_tracks = [t for t in tracks if t["path"] not in existing_paths]
+
+    return _checkpointed_embed_and_append(
+        new_tracks, existing_embeds, existing_segments_df, embeddings_path, segments_path, checkpoint_every
+    )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--root", required=True)
+    parser.add_argument("--root", default=None, help="required unless --from-whole-track-pool is used")
     parser.add_argument("--n", type=int, default=20)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--embeddings-out", default=DEFAULT_EMBEDDINGS_PATH)
@@ -98,10 +129,21 @@ if __name__ == "__main__":
         action="store_true",
         help="add --n new tracks to the existing saved segment index instead of rebuilding from scratch",
     )
+    parser.add_argument(
+        "--from-whole-track-pool",
+        default=None,
+        help="path to a whole-track tracks CSV (e.g. library_tracks.csv) - embeds exactly the "
+        "tracks in it that are missing from the segment index, instead of a random sample",
+    )
     parser.add_argument("--checkpoint-every", type=int, default=20)
     args = parser.parse_args()
 
-    if args.extend:
+    if args.from_whole_track_pool:
+        whole_track_tracks = pd.read_csv(args.from_whole_track_pool).to_dict("records")
+        embeds, segments_df = extend_segment_index_for_tracks(
+            whole_track_tracks, args.embeddings_out, args.segments_out, args.checkpoint_every
+        )
+    elif args.extend:
         embeds, segments_df = extend_segment_index(
             args.root, args.n, args.seed, args.embeddings_out, args.segments_out, args.checkpoint_every
         )

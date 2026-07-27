@@ -1,7 +1,7 @@
 import pandas as pd
 import torch
 
-from src.index.build_segment_index import extend_segment_index
+from src.index.build_segment_index import extend_segment_index, extend_segment_index_for_tracks
 
 
 def _fake_embed_audio_segments(model, path):
@@ -52,6 +52,40 @@ def test_extend_segment_index_checkpoints_correctly(tmp_path, monkeypatch):
     reloaded_embeds = torch.load(embeddings_path)
     assert reloaded_df["path"].nunique() == 6
     assert reloaded_embeds.shape[0] == 12
+
+
+def test_extend_segment_index_for_tracks_targets_exact_given_set(tmp_path, monkeypatch):
+    embeddings_path = tmp_path / "embeds.pt"
+    segments_path = tmp_path / "segments.csv"
+    torch.save(torch.empty(0, 2), embeddings_path)
+    pd.DataFrame(columns=["path", "artist", "title", "segment_start_sec"]).to_csv(
+        segments_path, index=False
+    )
+
+    monkeypatch.setattr("src.index.build_segment_index.load_model", lambda: object())
+    monkeypatch.setattr(
+        "src.index.build_segment_index.embed_audio_segments", _fake_embed_audio_segments
+    )
+
+    # a specific target set (e.g. read from a whole-track pool CSV) - not a
+    # random sample, and includes one track already in the segment index.
+    pd.DataFrame(
+        [{"path": "already.mp3", "artist": "A", "title": "Already", "segment_start_sec": 0}]
+    ).to_csv(segments_path, index=False)
+    torch.save(torch.tensor([[1.0, 0.0]]), embeddings_path)
+
+    target_tracks = [
+        {"path": "already.mp3", "artist": "A", "title": "Already"},
+        {"path": "wanted1.mp3", "artist": "B", "title": "Wanted 1"},
+        {"path": "wanted2.mp3", "artist": "C", "title": "Wanted 2"},
+    ]
+
+    embeds, segments_df = extend_segment_index_for_tracks(
+        target_tracks, str(embeddings_path), str(segments_path), checkpoint_every=1
+    )
+
+    assert segments_df["path"].nunique() == 3  # already + 2 new, not duplicated
+    assert set(segments_df["path"].unique()) == {"already.mp3", "wanted1.mp3", "wanted2.mp3"}
 
 
 def test_extend_segment_index_resume_does_not_reprocess_or_duplicate(tmp_path, monkeypatch):
